@@ -66,7 +66,7 @@ def remove_border(image, size=100):
     return image[size:size + original_height, size:size + original_width, ...]
 
 
-def get_landmarks(img, flip=False, detection_confidence=0.9, tracking_confidence=0.9):
+def get_landmarks(img, flip=False, detection_confidence=0.5, tracking_confidence=0.5):
     with mp_face_mesh.FaceMesh(min_detection_confidence=detection_confidence, min_tracking_confidence=tracking_confidence) as face_mesh:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
@@ -145,6 +145,8 @@ def swap_face(src, dst, output, texture_size=256, border_size=100, output_mask=F
     height = int(dst_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(dst_video.get(cv2.CAP_PROP_FPS))
     num_frames = int(dst_video.get(cv2.CAP_PROP_FRAME_COUNT))
+
+
 
     # Find face
     src_img = cv2.imread(src)
@@ -228,6 +230,7 @@ def swap_face(src, dst, output, texture_size=256, border_size=100, output_mask=F
                     glPixelStorei(GL_PACK_ALIGNMENT, 1)
                     data = glReadPixels(0, 0, width, height,
                                         GL_RGB, GL_UNSIGNED_BYTE)
+                                        
                     # I'm pretty sure all of this can be done with numpy avoiding PIL
                     image = Image.frombytes("RGB", (width, height), data)
                     image = ImageOps.flip(image)
@@ -247,6 +250,8 @@ def swap_face(src, dst, output, texture_size=256, border_size=100, output_mask=F
 
                     if output_mask:
                         mask_video.write(face)
+
+                    print('RECT: ', rect)
 
                     # Combine images
                     merged = cv2.seamlessClone(
@@ -277,6 +282,117 @@ def swap_face(src, dst, output, texture_size=256, border_size=100, output_mask=F
 
     if output_mask:
         mask_video.release()
+
+
+
+
+def swap_face_image(src, dst, output, texture_size=256, border_size=100, output_mask=False, copy_audio=False, use_mouth_model=False):
+    # Find face
+    dst_img = cv2.imread(dst)
+    dst_landmarks = get_landmarks(dst_img, flip=True)
+
+    height, width, channels = dst_img.shape
+
+    # Find face
+    src_img = cv2.imread(src)
+    src_landmarks = get_landmarks(src_img)
+
+    if src_landmarks is None:
+        raise RuntimeError("The source image does not contain any face")
+
+    # Load face obj
+    if use_mouth_model:
+        obj = OBJ("data/canonical_face_model_mouth.obj", swap=True)
+    else:
+        obj = OBJ("data/canonical_face_model.obj", swap=True)
+
+    # Generate material
+    mapped = map_image(src_img, src_landmarks, obj.vt,
+                       texture_size, texture_size, obj.f)
+    mapped = cv2.rotate(mapped, cv2.ROTATE_180)
+
+    cv2.imwrite("data/face_texture.png", mapped)
+
+    # Create render surface
+    pygame.display.set_mode((width, height), OPENGL | DOUBLEBUF)
+
+    # Set lights
+    # TODO make lights available through args
+    # glLightfv(GL_LIGHT0, GL_POSITION, (0.5, 0.5, 0.5, 0))
+    # glLightfv(GL_LIGHT0, GL_AMBIENT, (1.0, 1.0, 1.0, 1.0))
+    # glLightfv(GL_LIGHT0, GL_DIFFUSE, (1.0, 1.0, 1.0, 1.0))
+    # glEnable(GL_LIGHT0)
+    # glEnable(GL_LIGHTING)
+    glEnable(GL_COLOR_MATERIAL)
+    glEnable(GL_DEPTH_TEST)
+    glShadeModel(GL_SMOOTH)
+
+    # Load material and generate OpenGL object
+    obj.load_material("data/face.mtl")
+    obj.generate()
+
+    # Create output video
+    # TODO make codec available through args
+
+
+    
+
+    # Find face
+    landmarks = dst_landmarks
+
+    obj.v = landmarks
+    scaled_landmarks = np.array(
+        [(x * width, y * height) for x, y in np.delete(landmarks, 1, axis=1)]).astype(np.int32)
+
+    obj.generate()
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glLoadIdentity()
+
+    # Render
+    glScale(2, 2, 2)
+    glRotate(90, 1, 0, 0)
+    glTranslatef(-0.5, 0.0, -0.5)
+
+    glPushMatrix()
+    obj.render()
+    glPopMatrix()
+
+    # Get image from 3D model
+    glPixelStorei(GL_PACK_ALIGNMENT, 1)
+    data = glReadPixels(0, 0, width, height,
+                        GL_RGB, GL_UNSIGNED_BYTE)
+                        
+    # I'm pretty sure all of this can be done with numpy avoiding PIL
+    image = Image.frombytes("RGB", (width, height), data)
+    image = ImageOps.flip(image)
+    face = np.array(image, dtype=np.uint8)
+    face = cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
+
+    # Get mask
+    hull = cv2.convexHull(scaled_landmarks)
+    rect = cv2.boundingRect(hull)
+    mask = np.zeros_like(dst_img, dtype=np.uint8)
+    cv2.fillConvexPoly(mask, hull, (255, 255, 255))
+
+    if use_mouth_model:
+        mouth = np.zeros_like(face)
+        mouth[face[:, :] != (0, 0, 0)] = 255
+        mask = cv2.bitwise_and(mask, mouth)
+
+    print('RECT: ', rect)
+
+    # Combine images
+    merged = cv2.seamlessClone(
+        face, dst_img, mask, (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), cv2.NORMAL_CLONE)
+                    
+
+    cv2.imwrite(output, merged)
+
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -316,7 +432,7 @@ if __name__ == "__main__":
 
     if check_valid_args(parsed_args):
         try:
-            swap_face(
+            swap_face_image(
                 src=parsed_args.src,
                 dst=parsed_args.dst,
                 output=parsed_args.output,

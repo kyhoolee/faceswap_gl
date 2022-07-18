@@ -20,6 +20,14 @@ Install required modules
 ```
 cd faceswap_gl/
 pip install -r requirements.txt
+
+https://askubuntu.com/questions/492863/install-pygame-in-anaconda
+
+conda install -c https://conda.binstar.org/bri11091 pygame
+
+
+riehlnm/pygame
+bri11091/pygame
 ```
 
 ## Usage
@@ -27,6 +35,11 @@ pip install -r requirements.txt
 Basic usage
 ```
 python swap.py -s <SRC_PATH> -d <DST_PATH> -o <OUT_PATH>
+
+MESA_LOADER_DRIVER_OVERRIDE=i965 python swap.py -s ../images/kyle.jpg -d ../images/naruto.jpg -o ../images/kyle_naruto.jpg
+
+MESA_LOADER_DRIVER_OVERRIDE=i965 python swap.py -s ../images/samurai.jpg -d ../images/naruto.jpg -o ../images/kyle_naruto.jpg
+
 ```
 
 More options:
